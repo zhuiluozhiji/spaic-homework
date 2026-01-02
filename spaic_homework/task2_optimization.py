@@ -45,9 +45,13 @@ class OptNet(spaic.Network):
         # [输出] 10
         self.layer2 = spaic.NeuronGroup(10, model='clif', tau_m=2.0, v_th=1.0)
         
-        # [连接]
-        self.conn1 = spaic.Connection(self.input, self.layer1, link_type='full')
-        self.conn2 = spaic.Connection(self.layer1, self.layer2, link_type='full')
+        # [连接 - 增强初始化]
+        # Kaiming Initialization 思想，防止梯度消失或信号过弱
+        w1 = torch.randn(400, 784) * (2.0 / np.sqrt(784))
+        w2 = torch.randn(10, 400) * (2.0 / np.sqrt(400))
+        
+        self.conn1 = spaic.Connection(self.input, self.layer1, link_type='full', weight=w1)
+        self.conn2 = spaic.Connection(self.layer1, self.layer2, link_type='full', weight=w2)
         
         # [关键修改] 使用 Decoder 统计 Layer1 脉冲，以保持梯度
         self.layer1_decode = spaic.Decoder(num=400, dec_target=self.layer1, coding_method='spike_counts')
@@ -91,8 +95,9 @@ def run_epoch(net, loader, is_train=True):
         if data.dim() > 2:
             data = data.view(data.shape[0], -1)
             
-        # 扩展时间维度: [Batch, 784] -> [Batch, Time, 784]
-        input_data = data.unsqueeze(1).repeat(1, steps, 1)
+        # === 关键修复：放大输入信号 ===
+        # 将输入乘以 4.0 (可调)，确保在 6 个时间步内能触发脉冲
+        input_data = data.unsqueeze(1).repeat(1, steps, 1) * 4.0
         
         if isinstance(label, np.ndarray) or isinstance(label, list):
             label = torch.tensor(label).to(device).long()
@@ -104,7 +109,6 @@ def run_epoch(net, loader, is_train=True):
         net.run(TIME_WINDOW)
         
         # === 获取输出 (Tensors with Grad) ===
-        # 使用 Decoder.predict 获取脉冲总数
         count1 = net.layer1_decode.predict # [Batch, 400]
         count2 = net.output.predict        # [Batch, 10]
         
@@ -112,15 +116,11 @@ def run_epoch(net, loader, is_train=True):
         loss_cls = F.cross_entropy(count2, label)
         
         # === 计算发放率 (用于正则化) ===
-        # Firing Rate = Spike_Count / Time_Steps
-        # torch.mean 会对 Batch 和 Neuron 维度求平均
         fr1 = torch.mean(count1) / steps
         fr2 = torch.mean(count2) / steps
-        
         mean_fr = (fr1 + fr2) / 2.0
         
-        # 正则化 Loss: 强迫网络稀疏发放
-        # 如果准确率低，可降低系数 (e.g. 1.0); 如果发放率高，可增加 (e.g. 5.0)
+        # 正则化 Loss
         loss_reg = 2.0 * mean_fr
         loss = loss_cls + loss_reg
         
