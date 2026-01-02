@@ -11,13 +11,13 @@ from tqdm import tqdm
 TIME_WINDOW = 6.0 
 DT = 1.0           
 BATCH_SIZE = 100   
-EPOCHS = 20        
-LR = 1e-3          
+EPOCHS = 25        #稍微多跑几轮，因为我们增加了正则化难度，收敛变慢
+LR = 2e-3          # 初始学习率稍大
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Running on: {device}, Time Steps: {int(TIME_WINDOW/DT)}")
 
-save_dir = "./results_task2_final"
+save_dir = "./results_task2_ultimate"
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
@@ -30,39 +30,40 @@ train_loader = spaic.Dataloader(train_set, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = spaic.Dataloader(test_set, batch_size=BATCH_SIZE, shuffle=False)
 
 # --- 3. 定义网络 ---
-class FinalNet(spaic.Network):
+class UltiNet(spaic.Network):
     def __init__(self):
-        super(FinalNet, self).__init__()
+        super(UltiNet, self).__init__()
         
         self.input = spaic.Encoder(num=784, coding_method='null')
         
-        # [暴力优化 1: 极低阈值 + 不漏电]
-        # v_th=0.3: 极其敏感，确保信号能传到最后
-        # tau_m=100.0: 几乎完全不漏电，做纯粹的积分器
+        # [策略调整: 平衡之道]
+        # tau_m=20.0: 恢复一定的漏电，消除噪声
+        # v_th=0.6: 提高门槛！(之前是0.3)。这会显著降低 FR。
+        # 配合后面的 Gain=15.0，确保有效信号能过，无效信号被拦。
         neuron_params = {
-            'tau_m': 100.0,
-            'v_th': 0.3, 
+            'tau_m': 20.0,
+            'v_th': 0.6, 
             'v_reset': 0.0,
         }
         
         self.layer1 = spaic.NeuronGroup(400, model='clif', param=neuron_params)
         self.layer2 = spaic.NeuronGroup(10, model='clif', param=neuron_params)
         
-        # [暴力优化 2: 强劲初始化]
-        # 使用 Gain=3.0 的 Kaiming 初始化，保证信号逐层放大
-        w1 = torch.randn(400, 784) * (3.0 / np.sqrt(784))
-        w2 = torch.randn(10, 400) * (3.0 / np.sqrt(400))
+        # [初始化]
+        # 保持强劲的初始化，因为阈值提高了
+        w1 = torch.randn(400, 784) * (2.5 / np.sqrt(784))
+        w2 = torch.randn(10, 400) * (2.5 / np.sqrt(400))
         
         self.conn1 = spaic.Connection(self.input, self.layer1, link_type='full', weight=w1)
         self.conn2 = spaic.Connection(self.layer1, self.layer2, link_type='full', weight=w2)
         
-        # [Decoder 保持梯度]
         self.layer1_decode = spaic.Decoder(num=400, dec_target=self.layer1, coding_method='spike_counts')
         self.output = spaic.Decoder(num=10, dec_target=self.layer2, coding_method='spike_counts')
         
         # [算法]
         self.learner = Learner(trainable=self, algorithm='STCA', lr=LR)
-        self.learner.set_optimizer('Adam', LR) 
+        # 使用 AdamW，weight_decay 稍微给一点点，帮助稀疏化
+        self.learner.set_optimizer('AdamW', LR, weight_decay=1e-5) 
         
         self.set_backend(spaic.Torch_Backend(device))
         self.set_backend_dt(dt=DT)
@@ -73,17 +74,15 @@ def calculate_score(acc, fr):
     return total_score, fr_score
 
 def main():
-    print("初始化最终版网络 (Final High-Gain Strategy)...")
-    net = FinalNet()
+    print("初始化终极版网络 (Balanced Threshold Strategy)...")
+    net = UltiNet()
     
-    # === 【关键修复】 ===
-    # 显式构建网络，确保 Learner 中的 optimizer 被初始化
+    # 显式构建
     net.build()
-    # ==================
     
-    # 学习率调度器 (现在 net.learner.optim 不会是 None 了)
+    # 学习率调度: 余弦退火，最后收敛得很小
     optimizer = net.learner.optim
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
     
     best_score = -999
     
@@ -101,9 +100,10 @@ def main():
             data = data.to(device, dtype=torch.float32)
             if data.dim() > 2: data = data.view(data.shape[0], -1)
             
-            # [暴力优化 3: 强输入]
-            # 放大 10 倍
-            input_data = data.unsqueeze(1).repeat(1, steps, 1) * 10.0
+            # [策略调整: 强力输入]
+            # 因为 v_th 提到了 0.6，我们需要更大的 Gain 来驱动有效信号
+            # 15.0 是个激进的值
+            input_data = data.unsqueeze(1).repeat(1, steps, 1) * 15.0
             
             label = torch.tensor(label).to(device).long()
             
@@ -113,20 +113,21 @@ def main():
             count1 = net.layer1_decode.predict
             count2 = net.output.predict
             
-            # Loss 计算
             loss_cls = F.cross_entropy(count2, label)
             
-            # FR 计算
             fr1 = torch.mean(count1) / steps
             fr2 = torch.mean(count2) / steps
             mean_fr = (fr1 + fr2) / 2.0
             
-            # [暴力优化 4: 延迟正则化]
-            # 前 5 个 Epoch 几乎不惩罚，让网络先学会认字
+            # [策略调整: 动态重罚]
+            # Epoch 0-5: 0.5 (温和，先学特征)
+            # Epoch 5-25: 线性增加到 8.0 (重罚，极度压缩脉冲)
             if epoch < 5:
-                reg_coeff = 0.1
+                reg_coeff = 0.5
             else:
-                reg_coeff = 2.0
+                # 线性增长: 0.5 -> 8.0
+                progress = (epoch - 5) / (EPOCHS - 5)
+                reg_coeff = 0.5 + progress * 7.5
             
             loss_reg = reg_coeff * mean_fr
             loss = loss_cls + loss_reg
@@ -148,7 +149,7 @@ def main():
                 if isinstance(data, np.ndarray): data = torch.from_numpy(data)
                 data = data.to(device, dtype=torch.float32)
                 if data.dim() > 2: data = data.view(data.shape[0], -1)
-                input_data = data.unsqueeze(1).repeat(1, steps, 1) * 10.0
+                input_data = data.unsqueeze(1).repeat(1, steps, 1) * 15.0
                 label = torch.tensor(label).to(device).long()
                 
                 net.input(input_data)
