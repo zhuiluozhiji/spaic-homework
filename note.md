@@ -1,111 +1,100 @@
+![alt text](image-3.png)
 ```shell
-
-(spaic_env) huanghan@ub-server:/sda/huanghan/spaic_project/sp
-(spaic_env) huanghan@ub-server:/sda/huanghan/spaic_proje
-(spaic_env) huanghan@ub-server:/sda/huanghan/spaic_project/spaic_home
-(spaic_env) huanghan@ub-server:/sda/huanghan/spaic_project/spaic_homework$ CUDA_VISIBLE_DEVICES=5 python task2_optimization.py
+CUDA_VISIBLE_DEVICES=5 python task2_optimization.py
 Running on: cuda, Time Steps: 6
 >> Dataset loaded
 >> Dataset loaded
-初始化冠军网络...
-Applying LSUV-like Initialization...
-  Layer 1 initial mean firing rate: 0.4573
-  Scaling Layer 1 weights by 0.5000
-LSUV Initialization Done.
+初始化最终版网络 (Final High-Gain Strategy)...
 
-Epoch  | Train Acc  | Test Acc   | Test FR    | SCORE      | LR        
---------------------------------------------------------------------------------
-1      | ---        | 0.4645     | 0.0221     | 67.71     | 1.99e-03                                                                                
-  >>> New Best! (Acc: 46.45%, FR: 2.21%, Score: 67.71)
-2      | ---        | 0.4691     | 0.0184     | 68.86     | 1.98e-03                                                                                
-  >>> New Best! (Acc: 46.91%, FR: 1.84%, Score: 68.86)
-3      | ---        | 0.4712     | 0.0165     | 69.43     | 1.95e-03                                                                                
-  >>> New Best! (Acc: 47.12%, FR: 1.65%, Score: 69.43)
-4      | ---        | 0.4730     | 0.0149     | 69.92     | 1.91e-03                                                                                
-  >>> New Best! (Acc: 47.30%, FR: 1.49%, Score: 69.92)
-5      | ---        | 0.4745     | 0.0144     | 70.13     | 1.87e-03                                                                                
-  >>> New Best! (Acc: 47.45%, FR: 1.44%, Score: 70.13)
-6      | ---        | 0.4733     | 0.0132     | 70.36     | 1.81e-03                                                                                
-  >>> New Best! (Acc: 47.33%, FR: 1.32%, Score: 70.36)
-7      | ---        | 0.4725     | 0.0128     | 70.42     | 1.74e-03                                                                                
-  >>> New Best! (Acc: 47.25%, FR: 1.28%, Score: 70.42)
-8      | ---        | 0.4735     | 0.0123     | 70.60     | 1.67e-03                                                                                
-  >>> New Best! (Acc: 47.35%, FR: 1.23%, Score: 70.60)
-9      | ---        | 0.4739     | 0.0120     | 70.70     | 1.59e-03                                                                                
-  >>> New Best! (Acc: 47.39%, FR: 1.20%, Score: 70.70)
-10     | ---        | 0.4743     | 0.0119     | 70.73     | 1.50e-03                                                                                
-  >>> New Best! (Acc: 47.43%, FR: 1.19%, Score: 70.73)
-11     | ---        | 0.4757     | 0.0118     | 70.84     | 1.41e-03                                                                                
-  >>> New Best! (Acc: 47.57%, FR: 1.18%, Score: 70.84)
-12     | ---        | 0.4747     | 0.0115     | 70.86     | 1.31e-03                                                                                
-  >>> New Best! (Acc: 47.47%, FR: 1.15%, Score: 70.86)
-13     | ---        | 0.4734     | 0.0114     | 70.83     | 1.21e-03                                                                                
-14     | ---        | 0.4738     | 0.0113     | 70.86     | 1.11e-03                                                                                
-15     | ---        | 0.4748     | 0.0113     | 70.90     | 1.01e-03                                                                                
-  >>> New Best! (Acc: 47.48%, FR: 1.13%, Score: 70.90)
-16     | ---        | 0.4736     | 0.0112     | 70.87     | 9.01e-04                                                                                
-17     | ---        | 0.4742     | 0.0110     | 70.95     | 7.98e-04                                                                                
-  >>> New Best! (Acc: 47.42%, FR: 1.10%, Score: 70.95)
-18     | ---        | 0.4746     | 0.0110     | 70.99     | 6.98e-04                                                                                
-  >>> New Best! (Acc: 47.46%, FR: 1.10%, Score: 70.99)
-19     | ---        | 0.4733     | 0.0110     | 70.92     | 6.00e-04                                                                                
-20     | ---        | 0.4750     | 0.0109     | 71.02     | 5.08e-04                                                                                
-  >>> New Best! (Acc: 47.50%, FR: 1.09%, Score: 71.02)
-21     | ---        | 0.4747     | 0.0109     | 71.02     | 4.20e-04                                                                                
-  >>> New Best! (Acc: 47.47%, FR: 1.09%, Score: 71.02)
-22     | ---        | 0.4743     | 0.0108     | 71.02     | 3.39e-04                                                                                
-23     | ---        | 0.4742     | 0.0108     | 71.01     | 2.66e-04                                                                                
-24     | ---        | 0.4747     | 0.0107     | 71.05     | 2.00e-04                                                                                
-  >>> New Best! (Acc: 47.47%, FR: 1.07%, Score: 71.05)
-25     | ---        | 0.4746     | 0.0107     | 71.06     | 1.43e-04                                                                                
-  >>> New Best! (Acc: 47.46%, FR: 1.07%, Score: 71.06)
-26     | ---        | 0.4745     | 0.0107     | 71.06     | 9.60e-05                                                                                
-  >>> New Best! (Acc: 47.45%, FR: 1.07%, Score: 71.06)
-27     | ---        | 0.4745     | 0.0106     | 71.07     | 5.87e-05                                                                                
-  >>> New Best! (Acc: 47.45%, FR: 1.06%, Score: 71.07)
-28     | ---        | 0.4744     | 0.0106     | 71.07     | 3.17e-05                                                                                
-29     | ---        | 0.4746     | 0.0106     | 71.08     | 1.55e-05                                                                                
-  >>> New Best! (Acc: 47.46%, FR: 1.06%, Score: 71.08)
-30     | ---        | 0.4746     | 0.0106     | 71.09     | 1.00e-05                                                                                
-  >>> New Best! (Acc: 47.46%, FR: 1.06%, Score: 71.09)
+Epoch  | Train Acc  | Test Acc   | Test FR    | SCORE     
+----------------------------------------------------------------------
+1      | ---        | 0.8395     | 0.1542     | 53.44                                                                                               
+  >>> New Best! (Acc: 83.95%, FR: 15.42%)
+2      | ---        | 0.8548     | 0.1490     | 55.48                                                                                               
+  >>> New Best! (Acc: 85.48%, FR: 14.90%)
+3      | ---        | 0.8557     | 0.1473     | 55.96                                                                                               
+  >>> New Best! (Acc: 85.57%, FR: 14.73%)
+4      | ---        | 0.8657     | 0.1405     | 58.16                                                                                               
+  >>> New Best! (Acc: 86.57%, FR: 14.05%)
+5      | ---        | 0.8681     | 0.1370     | 59.15                                                                                               
+  >>> New Best! (Acc: 86.81%, FR: 13.70%)
+6      | ---        | 0.8635     | 0.0504     | 80.58                                                                                               
+  >>> New Best! (Acc: 86.35%, FR: 5.04%)
+7      | ---        | 0.8683     | 0.0397     | 83.48                                                                                               
+  >>> New Best! (Acc: 86.83%, FR: 3.97%)
+8      | ---        | 0.8719     | 0.0383     | 84.02                                                                                               
+  >>> New Best! (Acc: 87.19%, FR: 3.83%)
+9      | ---        | 0.9630     | 0.0371     | 88.86                                                                                               
+  >>> New Best! (Acc: 96.30%, FR: 3.71%)
+10     | ---        | 0.9673     | 0.0361     | 89.33                                                                                               
+  >>> New Best! (Acc: 96.73%, FR: 3.61%)
+11     | ---        | 0.9689     | 0.0351     | 89.68                                                                                               
+  >>> New Best! (Acc: 96.89%, FR: 3.51%)
+12     | ---        | 0.9699     | 0.0345     | 89.87                                                                                               
+  >>> New Best! (Acc: 96.99%, FR: 3.45%)
+13     | ---        | 0.9693     | 0.0341     | 89.94                                                                                               
+  >>> New Best! (Acc: 96.93%, FR: 3.41%)
+14     | ---        | 0.9690     | 0.0334     | 90.11                                                                                               
+  >>> New Best! (Acc: 96.90%, FR: 3.34%)
+15     | ---        | 0.9698     | 0.0329     | 90.25                                                                                               
+  >>> New Best! (Acc: 96.98%, FR: 3.29%)
+16     | ---        | 0.9706     | 0.0326     | 90.39                                                                                               
+  >>> New Best! (Acc: 97.06%, FR: 3.26%)
+17     | ---        | 0.9712     | 0.0323     | 90.48                                                                                               
+  >>> New Best! (Acc: 97.12%, FR: 3.23%)
+18     | ---        | 0.9710     | 0.0317     | 90.63                                                                                               
+  >>> New Best! (Acc: 97.10%, FR: 3.17%)
+19     | ---        | 0.9703     | 0.0316     | 90.62                                                                                               
+20     | ---        | 0.9716     | 0.0316     | 90.68                                                                                               
+  >>> New Best! (Acc: 97.16%, FR: 3.16%)
 
-Final Best Score: 71.09
+Final Best Score: 90.68
 
 ```
 
 
-这确实是一个“反向优化”的典型案例，我非常理解你的心情。让我们来做一次彻底的**故障复盘（Post-mortem）**，找出为什么“高级技巧”反而导致了分数下降。
-
-### 📉 为什么分数反而下降了？
-
-1. **LSUV 帮了倒忙**：
-* 终端输出显示：`Scaling Layer 1 weights by 0.5000`。
-* LSUV 为了追求“方差平衡”，强行把权重**缩小了一半**。
-* **致命伤**：在  的极限短时间里，我们需要的是**强刺激**（大权重、大电流）来瞬间冲开阈值。权重被缩小后，信号传导变弱，导致深层神经元接收到的电流不足，直接卡在了 47% 的准确率瓶颈上。
 
 
-2. **正则化过早介入**：
-* 代码中 `reg_lambda` 从 2.0 开始。在网络还没学会认字（Acc 低）的时候，我们就重罚它“多说话”。
-* 结果：网络选择了“躺平”——为了不得负分，干脆少发脉冲，导致准确率上不去。
+
+
+
+
+
+
+
+
+你说得非常对。**过犹不及（Over-fitting/Over-engineering）** 是调优中的大忌。
+
+之前我们将 `v_th` 降到 0.3，虽然让网络更容易“兴奋”（准确率提升快），但也导致了它**“话太多”**（发放率偏高，3.16% 还是不够极致）。
+
+想要突破 91.63 分，我们必须在保持准确率 97% 的基础上，把发放率按死在 **2% 以下**。
+
+### 📉 策略回调：回归平衡 (The "Golden Ratio" Strategy)
+
+我们做三个“反向”调整，回到更稳健的参数：
+
+1. **回调阈值 (`v_th` 0.3 -> 0.5)**：
+* 让神经元变得“高冷”一点。只有信号非常强烈时才发放脉冲。这能直接滤除大量无效的噪声脉冲，大幅降低 FR。
+* *（原理解释：提高阈值就像提高了大坝的水位线，只有最大的浪（特征）能翻过去，小浪（噪声）都被拦住了。）*
+
+
+2. **回调时间常数 (`tau_m` 100.0 -> 20.0)**：
+* `100.0` 几乎是不漏电，这导致之前的噪声也一直积累着不消散。
+* 回到 `20.0`，让神经元有适当的“遗忘”能力，有助于清除历史噪声。
+
+
+3. **加大惩罚力度 (Reg 2.0 -> 8.0)**：
+* 这是提分的关键。既然网络已经能学到 97%，我们就重罚发放率，逼迫它用更少的脉冲传达同样的信息。
 
 
 
 ---
 
-### 🏆 真正的“满分”策略：暴力美学 (`task2_final.py`)
+### 🚀 终极冲刺代码 (`task2_ultimate.py`)
 
-既然“技巧流”在短时窗下水土不服，我们就回归**“暴力美学”**。
+这份代码的目标是：**Acc ~97.5%, FR ~1.5%, Score > 92**。
 
-**核心调整逻辑**：
-
-1. **移除 LSUV**：回归 Kaiming 初始化，保持权重的原始强度。
-2. **降低正则化惩罚**：前期几乎不惩罚（让它先学），后期再慢慢加压。
-3. **降低阈值**：`v_th` 降到 **0.3**（非常激进）。只要有一点点特征吻合，立刻发放脉冲。
-4. **增强输入**：增益保持 **12.0**。
-
-这份代码的目标是：**Acc > 98%, FR < 5%, Score > 90**。
-
-请创建并运行 `task2_final.py`：
+请直接覆盖运行：
 
 ```python
 import os
@@ -121,13 +110,13 @@ from tqdm import tqdm
 TIME_WINDOW = 6.0 
 DT = 1.0           
 BATCH_SIZE = 100   
-EPOCHS = 20        
-LR = 1e-3          
+EPOCHS = 25        #稍微多跑几轮，因为我们增加了正则化难度，收敛变慢
+LR = 2e-3          # 初始学习率稍大
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Running on: {device}, Time Steps: {int(TIME_WINDOW/DT)}")
 
-save_dir = "./results_task2_final"
+save_dir = "./results_task2_ultimate"
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
@@ -140,39 +129,40 @@ train_loader = spaic.Dataloader(train_set, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = spaic.Dataloader(test_set, batch_size=BATCH_SIZE, shuffle=False)
 
 # --- 3. 定义网络 ---
-class FinalNet(spaic.Network):
+class UltiNet(spaic.Network):
     def __init__(self):
-        super(FinalNet, self).__init__()
+        super(UltiNet, self).__init__()
         
         self.input = spaic.Encoder(num=784, coding_method='null')
         
-        # [暴力优化 1: 极低阈值 + 不漏电]
-        # v_th=0.3: 极其敏感，确保信号能传到最后
-        # tau_m=100.0: 几乎完全不漏电，做纯粹的积分器
+        # [策略调整: 平衡之道]
+        # tau_m=20.0: 恢复一定的漏电，消除噪声
+        # v_th=0.6: 提高门槛！(之前是0.3)。这会显著降低 FR。
+        # 配合后面的 Gain=15.0，确保有效信号能过，无效信号被拦。
         neuron_params = {
-            'tau_m': 100.0,
-            'v_th': 0.3, 
+            'tau_m': 20.0,
+            'v_th': 0.6, 
             'v_reset': 0.0,
         }
         
         self.layer1 = spaic.NeuronGroup(400, model='clif', param=neuron_params)
         self.layer2 = spaic.NeuronGroup(10, model='clif', param=neuron_params)
         
-        # [暴力优化 2: 强劲初始化]
-        # 使用 Gain=3.0 的 Kaiming 初始化，保证信号逐层放大
-        w1 = torch.randn(400, 784) * (3.0 / np.sqrt(784))
-        w2 = torch.randn(10, 400) * (3.0 / np.sqrt(400))
+        # [初始化]
+        # 保持强劲的初始化，因为阈值提高了
+        w1 = torch.randn(400, 784) * (2.5 / np.sqrt(784))
+        w2 = torch.randn(10, 400) * (2.5 / np.sqrt(400))
         
         self.conn1 = spaic.Connection(self.input, self.layer1, link_type='full', weight=w1)
         self.conn2 = spaic.Connection(self.layer1, self.layer2, link_type='full', weight=w2)
         
-        # [Decoder 保持梯度]
         self.layer1_decode = spaic.Decoder(num=400, dec_target=self.layer1, coding_method='spike_counts')
         self.output = spaic.Decoder(num=10, dec_target=self.layer2, coding_method='spike_counts')
         
         # [算法]
         self.learner = Learner(trainable=self, algorithm='STCA', lr=LR)
-        self.learner.set_optimizer('Adam', LR) # Adam 通常比 AdamW 收敛更快
+        # 使用 AdamW，weight_decay 稍微给一点点，帮助稀疏化
+        self.learner.set_optimizer('AdamW', LR, weight_decay=1e-5) 
         
         self.set_backend(spaic.Torch_Backend(device))
         self.set_backend_dt(dt=DT)
@@ -183,12 +173,15 @@ def calculate_score(acc, fr):
     return total_score, fr_score
 
 def main():
-    print("初始化最终版网络 (Final High-Gain Strategy)...")
-    net = FinalNet()
+    print("初始化终极版网络 (Balanced Threshold Strategy)...")
+    net = UltiNet()
     
-    # 学习率调度器
+    # 显式构建
+    net.build()
+    
+    # 学习率调度: 余弦退火，最后收敛得很小
     optimizer = net.learner.optim
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
     
     best_score = -999
     
@@ -206,9 +199,10 @@ def main():
             data = data.to(device, dtype=torch.float32)
             if data.dim() > 2: data = data.view(data.shape[0], -1)
             
-            # [暴力优化 3: 强输入]
-            # 放大 10 倍
-            input_data = data.unsqueeze(1).repeat(1, steps, 1) * 10.0
+            # [策略调整: 强力输入]
+            # 因为 v_th 提到了 0.6，我们需要更大的 Gain 来驱动有效信号
+            # 15.0 是个激进的值
+            input_data = data.unsqueeze(1).repeat(1, steps, 1) * 15.0
             
             label = torch.tensor(label).to(device).long()
             
@@ -218,21 +212,21 @@ def main():
             count1 = net.layer1_decode.predict
             count2 = net.output.predict
             
-            # Loss 计算
             loss_cls = F.cross_entropy(count2, label)
             
-            # FR 计算
             fr1 = torch.mean(count1) / steps
             fr2 = torch.mean(count2) / steps
             mean_fr = (fr1 + fr2) / 2.0
             
-            # [暴力优化 4: 延迟正则化]
-            # 前 5 个 Epoch 几乎不惩罚，让网络先学会认字
-            # 之后再慢慢加压，最大到 2.0 (不需要太大，因为 v_th=0.3 已经很敏感了)
+            # [策略调整: 动态重罚]
+            # Epoch 0-5: 0.5 (温和，先学特征)
+            # Epoch 5-25: 线性增加到 8.0 (重罚，极度压缩脉冲)
             if epoch < 5:
-                reg_coeff = 0.1
+                reg_coeff = 0.5
             else:
-                reg_coeff = 2.0
+                # 线性增长: 0.5 -> 8.0
+                progress = (epoch - 5) / (EPOCHS - 5)
+                reg_coeff = 0.5 + progress * 7.5
             
             loss_reg = reg_coeff * mean_fr
             loss = loss_cls + loss_reg
@@ -254,7 +248,7 @@ def main():
                 if isinstance(data, np.ndarray): data = torch.from_numpy(data)
                 data = data.to(device, dtype=torch.float32)
                 if data.dim() > 2: data = data.view(data.shape[0], -1)
-                input_data = data.unsqueeze(1).repeat(1, steps, 1) * 10.0
+                input_data = data.unsqueeze(1).repeat(1, steps, 1) * 15.0
                 label = torch.tensor(label).to(device).long()
                 
                 net.input(input_data)
@@ -288,12 +282,11 @@ if __name__ == "__main__":
 
 ```
 
-### 预期效果
+### 预期走势
 
-运行这份代码：
+1. **前 5 个 Epoch**：准确率会很快上 96%，此时 FR 可能在 0.04 - 0.05 左右（分数约 85）。
+2. **第 10 个 Epoch 后**：随着正则化系数从 0.5 爬升到 4.0、5.0... FR 会开始**断崖式下跌**。你可能会看到 FR 降到 **0.015 (1.5%)** 甚至更低。
+3. **最终结果**：只要 Acc 维持在 97% 以上，FR 降到 1.5%，分数就是：
 
-1. **Epoch 1-5**：Acc 会迅速飙升到 **90%** 以上，FR 可能会稍高（0.1 左右）。此时分数可能在 80-85 分。
-2. **Epoch 6+**：随着正则化系数增大（`reg_coeff = 2.0`），网络开始被“压榨”，FR 会逐渐下降到 **0.05** 以下，而 Acc 保持稳定。
-3. **最终 Score**：应该能稳稳突破 **90分**（例如：Acc 97%, FR 3% => Score 48.5 + 42.5 = 91）。
 
-这才是全班第一该有的样子！请执行：`CUDA_VISIBLE_DEVICES=5 python task2_final.py`。
+请运行：`CUDA_VISIBLE_DEVICES=5 python task2_ultimate.py`，期待你的好消息！
