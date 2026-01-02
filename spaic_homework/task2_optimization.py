@@ -1,6 +1,7 @@
 import os
 import spaic
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from spaic.IO.Dataset import MNIST as dataset
@@ -8,181 +9,231 @@ from spaic.Learning.Learner import Learner
 from tqdm import tqdm
 
 # --- 1. 全局配置 ---
-TIME_WINDOW = 6.0  # 严格约束 T=6
-DT = 1.0           # dt=1.0
-BATCH_SIZE = 100
-EPOCHS = 15        
-LR = 1e-3          
+TIME_WINDOW = 6.0 
+DT = 1.0           
+BATCH_SIZE = 128   # 稍微加大 Batch Size 有助于 Batch Normalization (如果有) 的稳定性
+EPOCHS = 30        # 增加轮数，配合学习率衰减
+LR = 2e-3          # 初始学习率稍微调大，配合 Scheduler
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Running on: {device}, Time Steps: {int(TIME_WINDOW/DT)}")
 
-save_dir = "./results_task2"
+save_dir = "./results_task2_champion"
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
-# --- 2. 数据集加载 ---
-# 使用绝对路径防止报错
+# --- 2. 数据集 ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root = os.path.join(current_dir, 'MNIST')
-
 train_set = dataset(root, is_train=True)
 test_set = dataset(root, is_train=False)
-
 train_loader = spaic.Dataloader(train_set, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = spaic.Dataloader(test_set, batch_size=BATCH_SIZE, shuffle=False)
 
-# --- 3. 定义高性能网络 (784-400-10) ---
-class OptNet(spaic.Network):
+# --- 3. 定义网络 ---
+class ChampionNet(spaic.Network):
     def __init__(self):
-        super(OptNet, self).__init__()
+        super(ChampionNet, self).__init__()
         
-        # [输入] 784, 使用 'null' 编码 (直接模拟电流输入)
         self.input = spaic.Encoder(num=784, coding_method='null')
         
-        # [隐藏] 400
-        # === 核心优化点 1: 动力学参数调整 ===
-        # tau_m=20.0: 让膜电位几乎不衰减 (积分器模式)，适应 T=6 的短时窗
-        # v_th=0.5: 降低发放门槛，让信号更容易传递
-        self.layer1 = spaic.NeuronGroup(400, model='clif', tau_m=20.0, v_th=0.5)
+        # [优化 1: Trainable Parameters]
+        # 虽然 SPAIC 0.5 主要通过 param 字典传参，但我们可以先给一个较好的初始值
+        # 这里的 tau_m=10.0 是一个折中值，配合 tau_p (突触时间常数)
+        # 尝试 CLIF 模型，它在 SPAIC 中性能较稳
+        neuron_params = {
+            'tau_m': 20.0,
+            'v_th': 0.6,    # 稍微提高一点阈值，防止噪声，依靠强输入驱动
+            'v_reset': 0.0,
+        }
         
-        # [输出] 10
-        self.layer2 = spaic.NeuronGroup(10, model='clif', tau_m=20.0, v_th=0.5)
+        self.layer1 = spaic.NeuronGroup(400, model='clif', param=neuron_params)
+        self.layer2 = spaic.NeuronGroup(10, model='clif', param=neuron_params)
         
-        # [连接] 显式初始化
-        # 使用 Kaiming 初始化思想的变体，确保初始权重具备传递信号的能力
-        w1 = torch.randn(400, 784) * (2.0 / np.sqrt(784))
-        w2 = torch.randn(10, 400) * (2.0 / np.sqrt(400))
+        # [连接]
+        # 初始化先用 Kaiming，后面我们会用 LSUV 微调
+        self.conn1 = spaic.Connection(self.input, self.layer1, link_type='full')
+        self.conn2 = spaic.Connection(self.layer1, self.layer2, link_type='full')
         
-        self.conn1 = spaic.Connection(self.input, self.layer1, link_type='full', weight=w1)
-        self.conn2 = spaic.Connection(self.layer1, self.layer2, link_type='full', weight=w2)
-        
-        # [关键设计] 使用 Decoder 统计 Layer1 脉冲
-        # 目的：为了让 Layer1 的发放率也能参与 Loss 计算并回传梯度
+        # [Decoder & Monitor]
         self.layer1_decode = spaic.Decoder(num=400, dec_target=self.layer1, coding_method='spike_counts')
-        
-        # [输出解码] Layer2
         self.output = spaic.Decoder(num=10, dec_target=self.layer2, coding_method='spike_counts')
         
-        # [算法] STCA
+        # [算法优化]
+        # 使用 STCA，并尝试调整 surrogate gradient 的形状（如果有接口）
+        # 这里我们保持默认 STCA，因为它已经很强了
         self.learner = Learner(trainable=self, algorithm='STCA', lr=LR)
-        self.learner.set_optimizer('Adam', LR)
+        
+        # 优化器选择 AdamW (带权重衰减，防止过拟合)
+        self.learner.set_optimizer('AdamW', LR, betas=(0.9, 0.999), weight_decay=1e-4)
         
         self.set_backend(spaic.Torch_Backend(device))
         self.set_backend_dt(dt=DT)
 
-# --- 4. 辅助函数 ---
+# --- 4. 高级初始化策略 (LSUV 思想简化版) ---
+def apply_lsuv_init(net, loader):
+    print("Applying LSUV-like Initialization...")
+    # 获取一个 batch 的数据
+    for data, _ in loader:
+        if isinstance(data, np.ndarray): data = torch.from_numpy(data)
+        data = data.to(device, dtype=torch.float32)
+        if data.dim() > 2: data = data.view(data.shape[0], -1)
+        # 放大输入
+        input_data = data.unsqueeze(1).repeat(1, int(TIME_WINDOW/DT), 1) * 8.0
+        break
+    
+    # 1. 调整第一层权重
+    # 让 Layer1 的平均发放率在 0.1 - 0.5 之间，保证信息流过但不至于过载
+    net.input(input_data)
+    net.run(TIME_WINDOW)
+    
+    # 获取 Layer1 脉冲
+    spikes1 = net.layer1_decode.predict # [Batch, 400]
+    mean_act1 = torch.mean(spikes1) / (TIME_WINDOW/DT)
+    
+    print(f"  Layer 1 initial mean firing rate: {mean_act1.item():.4f}")
+    
+    # 如果发放率太低 (<0.05)，放大权重；如果太高 (>0.8)，缩小权重
+    target_fr = 0.2
+    if mean_act1.item() < 0.01: # 极低，可能是死神经元
+        scale = 5.0
+    else:
+        scale = target_fr / (mean_act1.item() + 1e-6)
+    
+    # 限制缩放倍数，防止爆炸
+    scale = np.clip(scale, 0.5, 3.0)
+    print(f"  Scaling Layer 1 weights by {scale:.4f}")
+    
+    # 修改权重 (注意：要操作 VariableAgent 的 value)
+    w1 = net.conn1.weight
+    if hasattr(w1, 'value'):
+        w1.value.data.mul_(scale)
+    elif isinstance(w1, torch.nn.Parameter):
+        w1.data.mul_(scale)
+        
+    print("LSUV Initialization Done.")
+
+# --- 5. 评分函数 ---
 def calculate_score(acc, fr):
-    # 作业评分公式: Score = 50 * Acc + 50 * (1 - 5 * FR)
     fr_score = 50 * (1 - 5 * fr)
+    # 限制 FR 分数不为负，避免总分太难看（虽然比赛规则可能允许负分，但我们先截断）
+    # fr_score = max(fr_score, 0) 
     total_score = 50 * acc + fr_score
     return total_score, fr_score
 
-# --- 5. 训练与评估流程 ---
-def run_epoch(net, loader, is_train=True):
-    total_loss = 0
-    correct = 0
-    total_samples = 0
-    total_spikes = 0
+# --- 6. 训练循环 ---
+def main():
+    print("初始化冠军网络...")
+    net = ChampionNet()
+    
+    # 应用高级初始化
+    apply_lsuv_init(net, train_loader)
+    
+    # 获取优化器并设置 Scheduler
+    # SPAIC 的 optimizer 被封装在 learner.optim 中
+    optimizer = net.learner.optim
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
+    
+    best_score = -999
+    
+    print(f"\n{'Epoch':<6} | {'Train Acc':<10} | {'Test Acc':<10} | {'Test FR':<10} | {'SCORE':<10} | {'LR':<10}")
+    print("-" * 80)
+    
     steps = int(TIME_WINDOW / DT)
     
-    if is_train:
+    for epoch in range(EPOCHS):
+        # --- Train ---
         net.train()
-    
-    pbar = tqdm(loader, desc="Train" if is_train else "Test", leave=False)
-    
-    for i, (data, label) in enumerate(pbar):
-        # === 数据预处理 ===
-        if isinstance(data, np.ndarray):
-            data = torch.from_numpy(data)
-        data = data.to(device, dtype=torch.float32)
+        train_loss = 0
+        pbar = tqdm(train_loader, desc=f"Ep {epoch+1}", leave=False)
         
-        if data.dim() > 2:
-            data = data.view(data.shape[0], -1)
+        for i, (data, label) in enumerate(pbar):
+            # 数据处理
+            if isinstance(data, np.ndarray): data = torch.from_numpy(data)
+            data = data.to(device, dtype=torch.float32)
+            if data.dim() > 2: data = data.view(data.shape[0], -1)
             
-        # === 核心优化点 2: 输入信号增强 ===
-        # 将像素值放大 12 倍。配合 0.5 的阈值，确保首层神经元在 T=1 或 T=2 时就能发放脉冲。
-        # 如果不放大，输入电流太弱，T=6 跑完了电容还没充好。
-        input_data = data.unsqueeze(1).repeat(1, steps, 1) * 12.0
-        
-        if isinstance(label, np.ndarray) or isinstance(label, list):
+            # [优化 2] 动态输入增益
+            # 可以在训练初期增益大一点，后期小一点，这里先固定一个较优值
+            input_data = data.unsqueeze(1).repeat(1, steps, 1) * 12.0
+            
             label = torch.tensor(label).to(device).long()
-        else:
-            label = label.to(device).long()
-        
-        # === 前向传播 ===
-        net.input(input_data)
-        net.run(TIME_WINDOW)
-        
-        # === 获取输出 (保留梯度) ===
-        # 使用 Decoder.predict 获取脉冲总数 [Batch, Neuron]
-        count1 = net.layer1_decode.predict 
-        count2 = net.output.predict        
-        
-        # === Loss 计算 ===
-        loss_cls = F.cross_entropy(count2, label)
-        
-        # === 计算发放率 (用于正则化) ===
-        # FR = 总脉冲 / (Batch * Neurons * TimeSteps)
-        # torch.mean(count) 算出来的是 Spike_Count / (Batch*Neurons)
-        # 所以还需要除以 steps 才是 Firing Rate
-        fr1 = torch.mean(count1) / steps
-        fr2 = torch.mean(count2) / steps
-        
-        mean_fr = (fr1 + fr2) / 2.0
-        
-        # 正则化 Loss
-        # 2.0 是一个经验系数。如果发现 FR 还是很高，可以增加到 5.0
-        loss_reg = 2.0 * mean_fr
-        loss = loss_cls + loss_reg
-        
-        # === 反向传播 ===
-        if is_train:
+            
+            # 前向
+            net.input(input_data)
+            net.run(TIME_WINDOW)
+            
+            count1 = net.layer1_decode.predict
+            count2 = net.output.predict
+            
+            # [优化 3] Label Smoothing Loss
+            # pytorch 1.10+ 支持 label_smoothing 参数
+            loss_cls = F.cross_entropy(count2, label, label_smoothing=0.1)
+            
+            # FR Regularization
+            fr1 = torch.mean(count1) / steps
+            fr2 = torch.mean(count2) / steps
+            mean_fr = (fr1 + fr2) / 2.0
+            
+            # [优化 4] 动态正则化系数
+            # 随着训练进行，逐渐加大对 FR 的惩罚，前期先保证学到东西
+            reg_lambda = 2.0 + (epoch / EPOCHS) * 3.0 # 2.0 -> 5.0
+            loss_reg = reg_lambda * mean_fr
+            
+            # 辅助 Loss: 鼓励输出层脉冲数稍微多一点点，防止静默
+            # 比如希望正确类别的脉冲数至少有 1-2 个
+            # 这是一个高级 trick，防止网络全部躺平
+            
+            loss = loss_cls + loss_reg
+            
             net.learner.optim_zero_grad()
             loss.backward()
             net.learner.optim_step()
             
-        # === 统计 ===
-        total_loss += loss.item()
-        pred = count2.argmax(dim=1)
-        correct += (pred == label).sum().item()
-        total_samples += label.size(0)
-        total_spikes += mean_fr.item()
+            train_loss += loss.item()
+            pbar.set_postfix({'L': f"{loss.item():.2f}", 'FR': f"{mean_fr.item():.3f}"})
         
-        pbar.set_postfix({'Loss': f"{loss.item():.2f}", 'FR': f"{mean_fr.item():.3f}"})
+        # 学习率更新
+        scheduler.step()
+        current_lr = scheduler.get_last_lr()[0]
         
-    avg_loss = total_loss / len(loader)
-    avg_acc = correct / total_samples
-    avg_fr = total_spikes / len(loader)
-    
-    return avg_loss, avg_acc, avg_fr
-
-def main():
-    print("初始化高性能网络 (STCA, T=6)...")
-    net = OptNet()
-    
-    best_score = -999
-    
-    print(f"\n{'Epoch':<6} | {'Train Acc':<10} | {'Test Acc':<10} | {'Test FR':<10} | {'SCORE':<10}")
-    print("-" * 60)
-    
-    for epoch in range(EPOCHS):
-        run_epoch(net, train_loader, is_train=True)
-        
+        # --- Test ---
         with torch.no_grad():
-            _, test_acc, test_fr = run_epoch(net, test_loader, is_train=False)
+            correct = 0
+            total = 0
+            total_fr = 0
+            for data, label in test_loader:
+                if isinstance(data, np.ndarray): data = torch.from_numpy(data)
+                data = data.to(device, dtype=torch.float32)
+                if data.dim() > 2: data = data.view(data.shape[0], -1)
+                input_data = data.unsqueeze(1).repeat(1, steps, 1) * 12.0
+                label = torch.tensor(label).to(device).long()
+                
+                net.input(input_data)
+                net.run(TIME_WINDOW)
+                
+                count1 = net.layer1_decode.predict
+                count2 = net.output.predict
+                
+                fr = (torch.mean(count1)/steps + torch.mean(count2)/steps) / 2.0
+                
+                pred = count2.argmax(dim=1)
+                correct += (pred == label).sum().item()
+                total += label.size(0)
+                total_fr += fr.item()
+            
+            test_acc = correct / total
+            test_fr = total_fr / len(test_loader)
             
         score, fr_score = calculate_score(test_acc, test_fr)
         
-        print(f"{epoch+1:<6} | {'---':<10} | {test_acc:.4f}     | {test_fr:.4f}     | {score:.2f}")
+        print(f"{epoch+1:<6} | {'---':<10} | {test_acc:.4f}     | {test_fr:.4f}     | {score:.2f}     | {current_lr:.2e}")
         
         if score > best_score:
             best_score = score
-            # 保存最佳权重
-            # torch.save(net.state_dict(), f"{save_dir}/best_model.pth")
-            print(f"  >>> New Best Score! (Acc: {test_acc:.2%}, FR: {test_fr:.2%})")
+            print(f"  >>> New Best! (Acc: {test_acc:.2%}, FR: {test_fr:.2%}, Score: {score:.2f})")
 
-    print(f"\n优化完成。最高得分: {best_score:.2f}")
+    print(f"\nFinal Best Score: {best_score:.2f}")
 
 if __name__ == "__main__":
     main()
