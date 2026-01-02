@@ -8,7 +8,7 @@ from spaic.Learning.Learner import Learner
 from tqdm import tqdm
 
 # --- 1. 全局配置 ---
-TIME_WINDOW = 6.0  # T=6
+TIME_WINDOW = 6.0  # 严格约束 T=6
 DT = 1.0           # dt=1.0
 BATCH_SIZE = 100
 EPOCHS = 15        
@@ -22,6 +22,7 @@ if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
 # --- 2. 数据集加载 ---
+# 使用绝对路径防止报错
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root = os.path.join(current_dir, 'MNIST')
 
@@ -36,24 +37,28 @@ class OptNet(spaic.Network):
     def __init__(self):
         super(OptNet, self).__init__()
         
-        # [输入] 784, 'null' 编码
+        # [输入] 784, 使用 'null' 编码 (直接模拟电流输入)
         self.input = spaic.Encoder(num=784, coding_method='null')
         
         # [隐藏] 400
-        self.layer1 = spaic.NeuronGroup(400, model='clif', tau_m=2.0, v_th=1.0)
+        # === 核心优化点 1: 动力学参数调整 ===
+        # tau_m=20.0: 让膜电位几乎不衰减 (积分器模式)，适应 T=6 的短时窗
+        # v_th=0.5: 降低发放门槛，让信号更容易传递
+        self.layer1 = spaic.NeuronGroup(400, model='clif', tau_m=20.0, v_th=0.5)
         
         # [输出] 10
-        self.layer2 = spaic.NeuronGroup(10, model='clif', tau_m=2.0, v_th=1.0)
+        self.layer2 = spaic.NeuronGroup(10, model='clif', tau_m=20.0, v_th=0.5)
         
-        # [连接 - 增强初始化]
-        # Kaiming Initialization 思想，防止梯度消失或信号过弱
+        # [连接] 显式初始化
+        # 使用 Kaiming 初始化思想的变体，确保初始权重具备传递信号的能力
         w1 = torch.randn(400, 784) * (2.0 / np.sqrt(784))
         w2 = torch.randn(10, 400) * (2.0 / np.sqrt(400))
         
         self.conn1 = spaic.Connection(self.input, self.layer1, link_type='full', weight=w1)
         self.conn2 = spaic.Connection(self.layer1, self.layer2, link_type='full', weight=w2)
         
-        # [关键修改] 使用 Decoder 统计 Layer1 脉冲，以保持梯度
+        # [关键设计] 使用 Decoder 统计 Layer1 脉冲
+        # 目的：为了让 Layer1 的发放率也能参与 Loss 计算并回传梯度
         self.layer1_decode = spaic.Decoder(num=400, dec_target=self.layer1, coding_method='spike_counts')
         
         # [输出解码] Layer2
@@ -68,7 +73,7 @@ class OptNet(spaic.Network):
 
 # --- 4. 辅助函数 ---
 def calculate_score(acc, fr):
-    # Score = 50 * Acc + 50 * (1 - 5 * FR)
+    # 作业评分公式: Score = 50 * Acc + 50 * (1 - 5 * FR)
     fr_score = 50 * (1 - 5 * fr)
     total_score = 50 * acc + fr_score
     return total_score, fr_score
@@ -95,9 +100,10 @@ def run_epoch(net, loader, is_train=True):
         if data.dim() > 2:
             data = data.view(data.shape[0], -1)
             
-        # === 关键修复：放大输入信号 ===
-        # 将输入乘以 4.0 (可调)，确保在 6 个时间步内能触发脉冲
-        input_data = data.unsqueeze(1).repeat(1, steps, 1) * 4.0
+        # === 核心优化点 2: 输入信号增强 ===
+        # 将像素值放大 12 倍。配合 0.5 的阈值，确保首层神经元在 T=1 或 T=2 时就能发放脉冲。
+        # 如果不放大，输入电流太弱，T=6 跑完了电容还没充好。
+        input_data = data.unsqueeze(1).repeat(1, steps, 1) * 12.0
         
         if isinstance(label, np.ndarray) or isinstance(label, list):
             label = torch.tensor(label).to(device).long()
@@ -108,19 +114,25 @@ def run_epoch(net, loader, is_train=True):
         net.input(input_data)
         net.run(TIME_WINDOW)
         
-        # === 获取输出 (Tensors with Grad) ===
-        count1 = net.layer1_decode.predict # [Batch, 400]
-        count2 = net.output.predict        # [Batch, 10]
+        # === 获取输出 (保留梯度) ===
+        # 使用 Decoder.predict 获取脉冲总数 [Batch, Neuron]
+        count1 = net.layer1_decode.predict 
+        count2 = net.output.predict        
         
         # === Loss 计算 ===
         loss_cls = F.cross_entropy(count2, label)
         
         # === 计算发放率 (用于正则化) ===
+        # FR = 总脉冲 / (Batch * Neurons * TimeSteps)
+        # torch.mean(count) 算出来的是 Spike_Count / (Batch*Neurons)
+        # 所以还需要除以 steps 才是 Firing Rate
         fr1 = torch.mean(count1) / steps
         fr2 = torch.mean(count2) / steps
+        
         mean_fr = (fr1 + fr2) / 2.0
         
         # 正则化 Loss
+        # 2.0 是一个经验系数。如果发现 FR 还是很高，可以增加到 5.0
         loss_reg = 2.0 * mean_fr
         loss = loss_cls + loss_reg
         
@@ -166,6 +178,8 @@ def main():
         
         if score > best_score:
             best_score = score
+            # 保存最佳权重
+            # torch.save(net.state_dict(), f"{save_dir}/best_model.pth")
             print(f"  >>> New Best Score! (Acc: {test_acc:.2%}, FR: {test_fr:.2%})")
 
     print(f"\n优化完成。最高得分: {best_score:.2f}")
