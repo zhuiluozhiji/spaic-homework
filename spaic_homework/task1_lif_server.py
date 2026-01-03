@@ -1,10 +1,14 @@
 import spaic
 import torch
-import numpy as np
+import numpy as np # 补充导入 numpy
 import matplotlib
-# 【服务器必加】
+# 【修改1】服务器必加，设置无头模式
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
+
+# 【修改2】自动检测 A100 (cuda)，保持高性能
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"Running on: {device}")
 
 run_time = 1000.0
 backend_dt = 0.1
@@ -13,116 +17,74 @@ class TestNet(spaic.Network):
     def __init__(self):
         super(TestNet, self).__init__()
         self.in_node = spaic.Encoder(num=1, coding_method='null')
-        
-        # 【修改1】模型设为 GLIF
-        # GLIF 的特性是发放脉冲后，阈值 v_th 会跳变升高，然后指数衰减回基准值
-        self.layer1 = spaic.NeuronGroup(num=1, model='glif')
-        
-        # 【修改2】权重设为 200.0
-        # 原因：GLIF 阈值会升高(变得难兴奋)，需要更大的电流来维持发放，展示适应性
-        self.connection1 = spaic.Connection(pre=self.in_node, post=self.layer1,
-                                            link_type='full', 
-                                            weight=torch.tensor([[200.0]]))
-        
-        # Monitor - 基础监控
+        self.layer1 = spaic.NeuronGroup(num=1, model='lif')
+        self.connection1 = spaic.Connection(pre=self.in_node, post=self.layer1,link_type='full', weight=torch.tensor([[1]]))
+        # Monitor
         self.mon_V = spaic.StateMonitor(self.layer1, 'V')
         self.mon_in = spaic.StateMonitor(self.in_node, 'O')
         self.mon_L1 = spaic.StateMonitor(self.layer1, 'O')
         
-        # 【核心逻辑】自动寻找并监控“动态阈值”变量
-        # 不同版本 SPAIC 中，GLIF 的阈值变量名可能是 'v_th', 'theta', 'threshold' 等
-        self.th_name = None
-        self.mon_th = None
-        
-        available_vars = []
-        if hasattr(self.layer1, '_variables'):
-            available_vars = list(self.layer1._variables.keys())
-        
-        # 常见阈值变量名候选
-        candidates = ['v_th', 'theta', 'V_th', 'threshold', 'thresh']
-        for cand in candidates:
-            if cand in available_vars:
-                self.th_name = cand
-                print(f"DEBUG: 成功锁定 GLIF 动态阈值变量名为: '{cand}'")
-                self.mon_th = spaic.StateMonitor(self.layer1, cand)
-                break
-        
-        # 后端设置 (CPU)
-        self.set_backend(spaic.Torch_Backend('cpu'))
+        # 【修改3】使用检测到的 device (cuda)
+        self.set_backend(spaic.Torch_Backend(device))
         self.set_backend_dt(dt=backend_dt)
-
-# 实例化网络
+    
+# 实例化网络并输入数据
 Net = TestNet()
 
-# 输入数据构建 (保持严格一致)
 my_input_data = torch.ones([int(run_time/backend_dt)]) * 0.0125
 my_input_data[int(100/backend_dt):int(200/backend_dt)] = 0.006
 my_input_data[int(200/backend_dt):int(500/backend_dt)] = 0.0
 my_input_data[:int(100/backend_dt)] = 0.0
 
-Net.in_node(my_input_data.view(1, 10000, 1))
-print("开始仿真 GLIF 模型...")
+# 【修改4】将输入数据移动到 GPU
+Net.in_node(my_input_data.view(1, 10000, 1).to(device))
 Net.run(run_time)
 
-# === 数据提取 ===
-def safe_numpy(data):
+# 【修改5】安全地将 GPU Tensor 转为 Numpy 用于绘图
+def to_numpy(data):
     if isinstance(data, torch.Tensor):
         return data.detach().cpu().numpy()
     return np.array(data)
 
-time_line = safe_numpy(Net.mon_V.times)
-value_line = safe_numpy(Net.mon_V.values[0][0])
-input_line = safe_numpy(Net.mon_in.values[0][0])
-output_time = safe_numpy(Net.mon_L1.times)
-output_line = safe_numpy(Net.mon_L1.values[0][0])
+time_line = to_numpy(Net.mon_V.times)
+value_line = to_numpy(Net.mon_V.values[0][0])
+input_line = to_numpy(Net.mon_in.values[0][0])
+output_time = to_numpy(Net.mon_L1.times)
+output_line = to_numpy(Net.mon_L1.values[0][0])
 
-# 提取动态阈值数据
-th_line = None
-if Net.mon_th is not None:
-    th_line = safe_numpy(Net.mon_th.values[0][0])
-
+# 保留你原本的逻辑：根据电压阈值寻找脉冲点
 spike_times = time_line[value_line > 0.997]
 spike_values = value_line[value_line > 0.997]
 
-print(f"仿真结束，检测到脉冲数: {len(spike_times)}")
+# === 绘图部分 ===
+plt.figure(figsize=(10, 8)) # 稍微调大画布以便保存更清晰
 
-# === 绘图 ===
-plt.figure(figsize=(10, 8))
-
-# 1. 输入电流
 plt.subplot(3, 1, 1)
-plt.title('Generalized Leaky Integrate-and-Fire (GLIF) Model')
-plt.plot(time_line, input_line, label='input current', color='tab:blue')
+plt.title('Leaky Integrated-and-Fire Model')
+plt.plot(time_line, input_line, label='input current')
 plt.ylabel("Current")
-plt.legend(loc='upper right')
+plt.legend()
 
-# 2. 膜电位 + 动态阈值 (这是 GLIF 的精髓)
 plt.subplot(3, 1, 2)
-plt.plot(time_line, value_line, label='V (Membrane)', color='tab:orange')
-
-# 如果找到了动态阈值，画出来
-if th_line is not None:
-    plt.plot(time_line, th_line, label=f'Dynamic Threshold ({Net.th_name})', 
-             color='green', linestyle='--', linewidth=1.5)
-else:
-    # 没找到就画个固定的
-    plt.axhline(1.0, color='gray', linestyle='--', label='Fixed Threshold')
-
-plt.ylabel("Potential")
+plt.plot(time_line, value_line, label='V')
+plt.ylabel("Membrane potential")
 if len(spike_times) > 0:
-    plt.scatter(spike_times, spike_values, color='red', marker='o', s=15, zorder=5)
-plt.ylim((-0.1, 2.0)) # GLIF 阈值可能会升高超过 1.0，所以把 Y 轴范围拉大一点
-plt.legend(loc='upper right')
+    plt.scatter(spike_times, spike_values, 
+                color='orange',    
+                marker='o',     # 圆点
+                s=10,           # 点的大小
+                label='output Spikes', # 图例
+                zorder=5)       # 确保点画在线的图层上面，不被遮挡
+plt.ylim((-0.1, 1.5))
+plt.legend()
 
-# 3. 脉冲序列
 plt.subplot(3, 1, 3)
-plt.plot(output_time, output_line, label='output spike', color='tab:green')
-plt.xlabel("time (ms)")
-plt.ylabel("Spikes")
-plt.legend(loc='upper right')
+plt.plot(output_time, output_line, label='output spike')
+plt.xlabel("time")
+plt.legend()
 
-# 保存
-save_path = 'glif_result.png'
+# 【修改6】改为保存图片
+save_path = 'lif_result.png'
 plt.tight_layout()
 plt.savefig(save_path)
 print(f"✅ 图片已保存为: {save_path}")
