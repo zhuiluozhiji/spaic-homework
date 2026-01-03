@@ -11,13 +11,13 @@ from tqdm import tqdm
 TIME_WINDOW = 6.0 
 DT = 1.0           
 BATCH_SIZE = 128   
-EPOCHS = 20        
-LR = 4e-3          
+EPOCHS = 20        # 只需要20轮，甚至第12-15轮就会出成绩
+LR = 5e-3          # 更大的学习率，快速冲顶
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Running on: {device}, Time Steps: {int(TIME_WINDOW/DT)}")
 
-save_dir = "./results_task2_correction"
+save_dir = "./results_task2_kamikaze"
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
@@ -30,14 +30,15 @@ train_loader = spaic.Dataloader(train_set, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = spaic.Dataloader(test_set, batch_size=BATCH_SIZE, shuffle=False)
 
 # --- 3. 定义网络 ---
-class CorrectionNet(spaic.Network):
+class KamikazeNet(spaic.Network):
     def __init__(self):
-        super(CorrectionNet, self).__init__()
+        super(KamikazeNet, self).__init__()
         
         self.input = spaic.Encoder(num=784, coding_method='null')
         
-        # [修正 1: 降低阈值，救回准确率]
-        # 从 0.6 降回 0.5。让信号更容易通过，解决欠拟合问题。
+        # [策略: 冲顶模式]
+        # v_th=0.5: 保证准确率能冲到 97%+
+        # tau_m=20.0: 积分模式
         neuron_params = {
             'tau_m': 20.0,
             'v_th': 0.5, 
@@ -47,7 +48,7 @@ class CorrectionNet(spaic.Network):
         self.layer1 = spaic.NeuronGroup(400, model='clif', param=neuron_params)
         self.layer2 = spaic.NeuronGroup(10, model='clif', param=neuron_params)
         
-        # [初始化] 保持强力初始化
+        # [初始化] 
         w1 = torch.randn(400, 784) * (2.5 / np.sqrt(784))
         w2 = torch.randn(10, 400) * (2.5 / np.sqrt(400))
         
@@ -58,7 +59,8 @@ class CorrectionNet(spaic.Network):
         self.output = spaic.Decoder(num=10, dec_target=self.layer2, coding_method='spike_counts')
         
         self.learner = Learner(trainable=self, algorithm='STCA', lr=LR)
-        self.learner.set_optimizer('AdamW', LR, weight_decay=1e-4)
+        # 移除权重衰减，让权重自由生长，只靠 Loss 来修剪
+        self.learner.set_optimizer('AdamW', LR, weight_decay=0) 
         
         self.set_backend(spaic.Torch_Backend(device))
         self.set_backend_dt(dt=DT)
@@ -77,8 +79,8 @@ def save_custom_weights(net, path):
     torch.save(state, path)
 
 def main():
-    print("初始化修正版网络 (High Acc & Low Net-FR Strategy)...")
-    net = CorrectionNet()
+    print("初始化决死冲锋版网络 (Kamikaze Peak Strategy)...")
+    net = KamikazeNet()
     net.build()
     
     optimizer = net.learner.optim
@@ -87,7 +89,7 @@ def main():
         max_lr=LR, 
         epochs=EPOCHS, 
         steps_per_epoch=len(train_loader),
-        pct_start=0.2 
+        pct_start=0.3 # 前30%都在冲 Acc
     )
     
     best_score = -999
@@ -107,7 +109,7 @@ def main():
             data = data.to(device, dtype=torch.float32)
             if data.dim() > 2: data = data.view(data.shape[0], -1)
             
-            # 保持 15.0 倍增益
+            # [狂暴输入] 15.0 倍，确保前期 Acc 冲满
             input_data = data.unsqueeze(1).repeat(1, steps, 1) * 15.0
             label = torch.tensor(label).to(device).long()
             
@@ -117,18 +119,25 @@ def main():
             count1 = net.layer1_decode.predict 
             count2 = net.output.predict        
             
+            # Loss 1: 分类
             loss_cls = F.cross_entropy(count2, label)
             
-            # [修正 2: 精准打击]
             mean_spikes_l1 = torch.mean(count1) / steps
+            mean_spikes_l2 = torch.mean(count2) / steps
             
-            # 动态系数：2.0 -> 5.0 (不要太高，之前是10.0太高了)
-            progress = epoch / EPOCHS
-            reg_base = 2.0 + progress * 3.0 
+            # [策略核心: 延迟处决]
+            if epoch < 6:
+                # 前6轮：Reg = 0.0！
+                # 让 Acc 自由生长，不惜一切代价冲到 97-98%
+                reg_coeff_l1 = 0.0
+            else:
+                # 第6轮开始：直接拉满到 30.0！
+                # 瞬间压榨 Layer 1，利用惯性维持 Acc
+                # 这是一个 Hard Step，不是渐变
+                reg_coeff_l1 = 30.0
             
-            # 关键点：Loss只惩罚 Layer 1！让 Layer 2 自由发挥以保证准确率。
-            # 因为 Layer 2 只有 10 个神经元，对全网平均 FR (分母410) 影响极小。
-            loss_reg = reg_base * mean_spikes_l1
+            # 只罚 Layer 1，绝对不罚 Layer 2
+            loss_reg = reg_coeff_l1 * mean_spikes_l1 
             
             loss = loss_cls + loss_reg
             
@@ -166,8 +175,6 @@ def main():
                 total_spikes_all += (torch.sum(count1) + torch.sum(count2)).item()
             
             test_acc = correct / total_samples
-            
-            # 全网平均 FR
             denom = total_neurons_network * total_samples * steps
             test_fr = total_spikes_all / denom
             
